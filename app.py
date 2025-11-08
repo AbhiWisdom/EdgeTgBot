@@ -170,6 +170,10 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
         True if successful, False otherwise
     """
     try:
+        # Validate voice format (should be like 'en-US-AriaNeural')
+        if not voice or len(voice) < 5:
+            raise ValueError(f"Invalid voice format: {voice}")
+        
         # Use edge_tts.Communicate with increased timeouts and proper async/await
         # Increased timeouts help with connection issues
         communicate = edge_tts.Communicate(
@@ -178,15 +182,27 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
             connect_timeout=timeout,
             receive_timeout=timeout * 2
         )
+        
+        # Save audio file
         await communicate.save(str(output_path))
         
         # Verify file was created and has content
-        if output_path.exists() and output_path.stat().st_size > 0:
-            return True
+        if output_path.exists():
+            file_size = output_path.stat().st_size
+            if file_size > 0:
+                logger.debug(f"Audio file generated successfully: {output_path} ({file_size} bytes)")
+                return True
+            else:
+                logger.warning(f"Generated audio file is empty: {output_path}")
+                raise Exception("No audio was received. Please verify that your parameters are correct.")
         else:
-            logger.warning(f"Generated audio file is empty or missing: {output_path}")
+            logger.warning(f"Generated audio file is missing: {output_path}")
             raise Exception("No audio was received. Please verify that your parameters are correct.")
             
+    except ValueError as e:
+        # Invalid voice or parameters
+        logger.error(f"Invalid TTS parameters: {e}")
+        raise Exception(f"Invalid voice parameter: {voice}. Please select a valid voice.")
     except WSServerHandshakeError as e:
         # Check if it's a 403 error (rate limiting/IP blocking)
         error_str = str(e)
@@ -194,6 +210,9 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
             raise Exception(f"Edge TTS 403 error: {e}")
         else:
             raise Exception(f"TTS WebSocket error: {e}")
+    except asyncio.TimeoutError as e:
+        logger.error(f"TTS generation timeout: {e}")
+        raise Exception(f"TTS generation timed out after {timeout}s. Please try again.")
     except Exception as e:
         # Re-raise with better error message if needed
         error_str = str(e)
