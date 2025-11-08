@@ -8,11 +8,14 @@ import logging
 import requests
 import uuid
 import asyncio
+import time
+import random
 from pathlib import Path
 from flask import Flask, request, jsonify, session, render_template, send_from_directory
 from flask_session import Session
 from flask_cors import CORS
 import edge_tts
+from aiohttp.client_exceptions import WSServerHandshakeError
 
 from bot.config import API_TOKEN, OWNER_ID, ABHIBOTS_CHANNEL_ID, BASE_AUDIO_DIR, MAX_TEXT_LENGTH, WEBHOOK_URL
 from bot.utils import load_voice_list, get_countries, get_languages, get_voices, cleanup_audio_files, sanitize_callback_data
@@ -153,6 +156,129 @@ def get_chat_member(chat_id, user_id):
         return None
 
 
+async def _generate_tts_async(text, voice, output_path, timeout=30):
+    """
+    Internal async function to generate TTS audio.
+    
+    Args:
+        text: Text to convert to speech
+        voice: Voice shortname
+        output_path: Path to save the audio file
+        timeout: Connection timeout in seconds
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Use edge_tts.Communicate with increased timeouts and proper async/await
+        # Increased timeouts help with connection issues
+        communicate = edge_tts.Communicate(
+            text, 
+            voice,
+            connect_timeout=timeout,
+            receive_timeout=timeout * 2
+        )
+        await communicate.save(str(output_path))
+        
+        # Verify file was created and has content
+        if output_path.exists() and output_path.stat().st_size > 0:
+            return True
+        else:
+            logger.warning(f"Generated audio file is empty")
+            return False
+            
+    except WSServerHandshakeError as e:
+        # Check if it's a 403 error (rate limiting/IP blocking)
+        error_str = str(e)
+        if '403' in error_str or 'Invalid response status' in error_str:
+            raise Exception(f"Edge TTS 403 error: {e}")
+        else:
+            raise Exception(f"TTS WebSocket error: {e}")
+    except Exception as e:
+        raise
+
+
+def generate_tts_with_retry(text, voice, output_path, max_retries=5):
+    """
+    Generate TTS audio with retry logic for handling 403 errors.
+    Uses edge_tts library with proper async handling and improved retry strategy.
+    
+    Args:
+        text: Text to convert to speech
+        voice: Voice shortname (e.g., 'en-US-AriaNeural')
+        output_path: Path to save the audio file
+        max_retries: Maximum number of retry attempts (increased to 5)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    # Validate inputs
+    if not text or not text.strip():
+        logger.error("Empty text provided for TTS")
+        return False
+    
+    if not voice:
+        logger.error("No voice specified for TTS")
+        return False
+    
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Add initial delay to avoid immediate rate limiting
+    initial_delay = random.uniform(1, 3)
+    logger.info(f"Initial delay: {initial_delay:.2f}s before first attempt...")
+    time.sleep(initial_delay)
+    
+    for attempt in range(max_retries):
+        try:
+            # Add delay between retries (exponential backoff with jitter)
+            if attempt > 0:
+                base_wait = min(2 ** attempt, 15)  # Max 15 seconds base
+                jitter = random.uniform(0, 3)  # Random jitter 0-3 seconds
+                wait_time = base_wait + jitter
+                logger.info(f"Retrying TTS generation (attempt {attempt + 1}/{max_retries}) after {wait_time:.2f}s delay...")
+                time.sleep(wait_time)
+            
+            # Increase timeout on later attempts
+            timeout = 30 + (attempt * 5)  # Start at 30s, increase by 5s per attempt
+            
+            # Generate audio using edge_tts with async/await
+            success = asyncio.run(_generate_tts_async(text, voice, output_path, timeout=timeout))
+            
+            if success:
+                if attempt > 0:
+                    logger.info(f"TTS generation succeeded on attempt {attempt + 1}")
+                return True
+            else:
+                logger.warning(f"TTS generation returned False (attempt {attempt + 1})")
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                
+        except Exception as e:
+            error_str = str(e)
+            # Check if it's a 403 error
+            if '403' in error_str or 'Edge TTS 403' in error_str:
+                logger.warning(f"Edge TTS 403 error (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    # For 403 errors, use longer delays
+                    if attempt >= 2:
+                        extra_delay = random.uniform(5, 10)
+                        logger.info(f"Adding extra delay for 403 error: {extra_delay:.2f}s")
+                        time.sleep(extra_delay)
+                    continue  # Retry
+                else:
+                    logger.error(f"TTS generation failed after {max_retries} attempts due to 403 errors")
+                    return False
+            else:
+                logger.error(f"TTS generation error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                else:
+                    return False
+    
+    return False
+
+
 def send_document(chat_id, document_path, caption=None):
     """Send document via Telegram Bot API."""
     url = f"{TELEGRAM_API_URL}/sendDocument"
@@ -255,41 +381,76 @@ def tts():
             return jsonify({"error": f"Text exceeds maximum length of {MAX_TEXT_LENGTH} characters"}), 400
         
         # Generate audio
-        user_audio_dir = BASE_AUDIO_DIR / 'web'
-        user_audio_dir.mkdir(parents=True, exist_ok=True)
-        
-        filename = f"{uuid.uuid4()}.mp3"
-        output_path = user_audio_dir / filename
-        
         try:
-            # Generate audio using edge_tts
-            communicate = edge_tts.Communicate(text, voice_shortname)
-            asyncio.run(communicate.save(str(output_path)))
+            user_audio_dir = BASE_AUDIO_DIR / 'web'
+            user_audio_dir.mkdir(parents=True, exist_ok=True)
             
-            if output_path.exists() and output_path.stat().st_size > 0:
+            filename = f"{uuid.uuid4()}.mp3"
+            output_path = user_audio_dir / filename
+            
+            # Generate audio with retry logic (improved: 5 retries with delays)
+            success = generate_tts_with_retry(text, voice_shortname, output_path, max_retries=5)
+            
+            if success:
+                # Verify file exists before returning
+                if not output_path.exists() or output_path.stat().st_size == 0:
+                    logger.error(f"Generated file is missing or empty: {output_path}")
+                    return jsonify({"error": "Generated audio file is invalid"}), 500
+                
                 # Generate URL for the audio file
                 audio_url = f"/static/audio/web/{filename}"
                 
-                # Cleanup old files
-                cleanup_audio_files('web')
+                # Cleanup old files (don't fail if cleanup fails)
+                try:
+                    cleanup_audio_files('web')
+                except Exception as cleanup_error:
+                    logger.warning(f"Cleanup failed (non-critical): {cleanup_error}")
                 
                 return jsonify({"audio_url": audio_url}), 200
             else:
-                return jsonify({"error": "Generated audio file is empty"}), 500
+                logger.error(f"TTS generation failed after retries for web interface")
+                return jsonify({"error": "Failed to generate audio. This may be due to rate limiting. Please try again in a few moments."}), 500
                 
-        except Exception as e:
-            logger.error(f"TTS generation error: {e}", exc_info=True)
-            return jsonify({"error": "Failed to generate audio"}), 500
+        except OSError as e:
+            logger.error(f"File system error in TTS endpoint: {e}", exc_info=True)
+            return jsonify({"error": f"File system error: {str(e)}"}), 500
+        except Exception as tts_error:
+            logger.error(f"TTS generation error: {tts_error}", exc_info=True)
+            return jsonify({"error": f"TTS generation failed: {str(tts_error)}"}), 500
             
+    except ValueError as e:
+        logger.error(f"Invalid input in TTS endpoint: {e}", exc_info=True)
+        return jsonify({"error": f"Invalid input: {str(e)}"}), 400
     except Exception as e:
         logger.error(f"TTS endpoint error: {e}", exc_info=True)
-        return jsonify({"error": "An unexpected error occurred"}), 500
+        error_msg = str(e) if str(e) else "An unexpected error occurred"
+        return jsonify({"error": f"An unexpected error occurred: {error_msg}"}), 500
 
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """Serve static files."""
-    return send_from_directory('static', filename)
+    try:
+        # Handle audio files specially
+        if filename.startswith('audio/'):
+            # On Heroku, audio files are in /tmp/static/audio
+            # On local, they're in static/audio
+            if os.environ.get('DYNO'):  # Heroku
+                audio_path = Path('/tmp/static') / filename
+            else:
+                audio_path = Path('static') / filename
+            
+            if audio_path.exists() and audio_path.is_file():
+                return send_from_directory(str(audio_path.parent), audio_path.name)
+            else:
+                logger.warning(f"Audio file not found: {audio_path}")
+                return jsonify({"error": "Audio file not found"}), 404
+        
+        # Other static files
+        return send_from_directory('static', filename)
+    except Exception as e:
+        logger.error(f"Error serving static file {filename}: {e}", exc_info=True)
+        return jsonify({"error": f"Error serving file: {str(e)}"}), 500
 
 
 @app.route('/test', methods=['GET', 'POST'])
@@ -667,21 +828,16 @@ def handle_text_message(message):
     filename = f"{uuid.uuid4()}.mp3"
     output_path = user_audio_dir / filename
     
-    try:
-        # Generate audio
-        communicate = edge_tts.Communicate(text, voice)
-        asyncio.run(communicate.save(str(output_path)))
-        
-        if output_path.exists() and output_path.stat().st_size > 0:
-            send_audio(chat_id, str(output_path))
-            output_path.unlink()
-        else:
-            send_message(chat_id, '⚠️ *Warning:* The generated audio file is empty. Please try again.')
-        
+    # Generate audio with retry logic (improved: 5 retries with delays)
+    success = generate_tts_with_retry(text, voice, output_path, max_retries=5)
+    
+    if success:
+        send_audio(chat_id, str(output_path))
+        output_path.unlink()
         cleanup_audio_files(user_id)
-    except Exception as e:
-        logger.error(f"TTS error for user {user_id}: {e}")
-        send_message(chat_id, '❌ *Error:* An unexpected error occurred. Please try again later.')
+    else:
+        logger.error(f"TTS generation failed after retries for user {user_id}")
+        send_message(chat_id, '❌ *Error:* Failed to generate audio. This may be due to rate limiting. Please try again in a few moments.')
 
 
 def handle_broadcast_message(message):
