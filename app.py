@@ -184,8 +184,8 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
         if output_path.exists() and output_path.stat().st_size > 0:
             return True
         else:
-            logger.warning(f"Generated audio file is empty")
-            return False
+            logger.warning(f"Generated audio file is empty or missing: {output_path}")
+            raise Exception("No audio was received. Please verify that your parameters are correct.")
             
     except WSServerHandshakeError as e:
         # Check if it's a 403 error (rate limiting/IP blocking)
@@ -195,10 +195,14 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
         else:
             raise Exception(f"TTS WebSocket error: {e}")
     except Exception as e:
+        # Re-raise with better error message if needed
+        error_str = str(e)
+        if 'No audio was received' in error_str or 'empty' in error_str.lower():
+            raise Exception(f"No audio was received. Please verify that your parameters are correct. Voice: {voice}, Text length: {len(text)}")
         raise
 
 
-def generate_tts_with_retry(text, voice, output_path, max_retries=5):
+def generate_tts_with_retry(text, voice, output_path, max_retries=5, fast_mode=False):
     """
     Generate TTS audio with retry logic for handling 403 errors.
     Uses edge_tts library with proper async handling and improved retry strategy.
@@ -208,6 +212,7 @@ def generate_tts_with_retry(text, voice, output_path, max_retries=5):
         voice: Voice shortname (e.g., 'en-US-AriaNeural')
         output_path: Path to save the audio file
         max_retries: Maximum number of retry attempts (increased to 5)
+        fast_mode: If True, uses shorter delays to avoid timeouts (for webhooks)
     
     Returns:
         True if successful, False otherwise
@@ -224,8 +229,11 @@ def generate_tts_with_retry(text, voice, output_path, max_retries=5):
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Add initial delay to avoid immediate rate limiting
-    initial_delay = random.uniform(1, 3)
+    # Add initial delay to avoid immediate rate limiting (shorter in fast mode)
+    if fast_mode:
+        initial_delay = random.uniform(0.5, 1.5)  # Shorter delay for webhooks
+    else:
+        initial_delay = random.uniform(1, 3)
     logger.info(f"Initial delay: {initial_delay:.2f}s before first attempt...")
     time.sleep(initial_delay)
     
@@ -233,14 +241,22 @@ def generate_tts_with_retry(text, voice, output_path, max_retries=5):
         try:
             # Add delay between retries (exponential backoff with jitter)
             if attempt > 0:
-                base_wait = min(2 ** attempt, 15)  # Max 15 seconds base
-                jitter = random.uniform(0, 3)  # Random jitter 0-3 seconds
+                if fast_mode:
+                    # Faster retries for webhooks to avoid H12 timeout
+                    base_wait = min(2 ** attempt, 5)  # Max 5 seconds base
+                    jitter = random.uniform(0, 1)  # Random jitter 0-1 seconds
+                else:
+                    base_wait = min(2 ** attempt, 15)  # Max 15 seconds base
+                    jitter = random.uniform(0, 3)  # Random jitter 0-3 seconds
                 wait_time = base_wait + jitter
                 logger.info(f"Retrying TTS generation (attempt {attempt + 1}/{max_retries}) after {wait_time:.2f}s delay...")
                 time.sleep(wait_time)
             
-            # Increase timeout on later attempts
-            timeout = 30 + (attempt * 5)  # Start at 30s, increase by 5s per attempt
+            # Increase timeout on later attempts (shorter in fast mode)
+            if fast_mode:
+                timeout = 10 + (attempt * 2)  # Start at 10s, increase by 2s per attempt
+            else:
+                timeout = 30 + (attempt * 5)  # Start at 30s, increase by 5s per attempt
             
             # Generate audio using edge_tts with async/await
             success = asyncio.run(_generate_tts_async(text, voice, output_path, timeout=timeout))
@@ -260,14 +276,32 @@ def generate_tts_with_retry(text, voice, output_path, max_retries=5):
             if '403' in error_str or 'Edge TTS 403' in error_str:
                 logger.warning(f"Edge TTS 403 error (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    # For 403 errors, use longer delays
+                    # For 403 errors, use longer delays (but shorter in fast mode)
                     if attempt >= 2:
-                        extra_delay = random.uniform(5, 10)
+                        if fast_mode:
+                            extra_delay = random.uniform(2, 4)
+                        else:
+                            extra_delay = random.uniform(5, 10)
                         logger.info(f"Adding extra delay for 403 error: {extra_delay:.2f}s")
                         time.sleep(extra_delay)
                     continue  # Retry
                 else:
                     logger.error(f"TTS generation failed after {max_retries} attempts due to 403 errors")
+                    return False
+            elif 'No audio was received' in error_str:
+                # This error might be retryable (could be temporary connection issue)
+                logger.warning(f"TTS 'No audio received' error (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    # Add delay before retrying (shorter in fast mode)
+                    if fast_mode:
+                        wait_time = random.uniform(1, 2)
+                    else:
+                        wait_time = random.uniform(2, 5)
+                    logger.info(f"Retrying after 'No audio received' error: {wait_time:.2f}s")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"TTS generation failed: No audio received after {max_retries} attempts. Voice: {voice}, Text length: {len(text)}")
                     return False
             else:
                 logger.error(f"TTS generation error (attempt {attempt + 1}): {e}")
@@ -828,16 +862,16 @@ def handle_text_message(message):
     filename = f"{uuid.uuid4()}.mp3"
     output_path = user_audio_dir / filename
     
-    # Generate audio with retry logic (improved: 5 retries with delays)
-    success = generate_tts_with_retry(text, voice, output_path, max_retries=5)
+    # Generate audio with retry logic (fast mode for webhook to avoid H12 timeout)
+    success = generate_tts_with_retry(text, voice, output_path, max_retries=5, fast_mode=True)
     
     if success:
         send_audio(chat_id, str(output_path))
         output_path.unlink()
         cleanup_audio_files(user_id)
     else:
-        logger.error(f"TTS generation failed after retries for user {user_id}")
-        send_message(chat_id, '❌ *Error:* Failed to generate audio. This may be due to rate limiting. Please try again in a few moments.')
+        logger.error(f"TTS generation failed after retries for user {user_id}. Voice: {voice}, Text length: {len(text)}")
+        send_message(chat_id, '❌ *Error:* Failed to generate audio. This may be due to rate limiting or invalid voice parameters. Please try again in a few moments or select a different voice.')
 
 
 def handle_broadcast_message(message):
