@@ -174,6 +174,10 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
         if not voice or len(voice) < 5:
             raise ValueError(f"Invalid voice format: {voice}")
         
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Generating TTS: voice={voice}, text_length={len(text)}, output={output_path}")
+        
         # Use edge_tts.Communicate with increased timeouts and proper async/await
         # Increased timeouts help with connection issues
         communicate = edge_tts.Communicate(
@@ -183,20 +187,26 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
             receive_timeout=timeout * 2
         )
         
-        # Save audio file
+        # Save audio file - this is the critical step
+        logger.debug(f"Calling communicate.save() to {output_path}")
         await communicate.save(str(output_path))
+        logger.debug(f"communicate.save() completed")
+        
+        # Small delay to ensure file system sync (especially on Heroku)
+        await asyncio.sleep(0.5)
         
         # Verify file was created and has content
         if output_path.exists():
             file_size = output_path.stat().st_size
+            logger.info(f"File exists: {output_path}, size: {file_size} bytes")
             if file_size > 0:
-                logger.debug(f"Audio file generated successfully: {output_path} ({file_size} bytes)")
+                logger.info(f"Audio file generated successfully: {output_path} ({file_size} bytes)")
                 return True
             else:
-                logger.warning(f"Generated audio file is empty: {output_path}")
+                logger.error(f"Generated audio file is empty: {output_path} (0 bytes)")
                 raise Exception("No audio was received. Please verify that your parameters are correct.")
         else:
-            logger.warning(f"Generated audio file is missing: {output_path}")
+            logger.error(f"Generated audio file is missing: {output_path} (file does not exist)")
             raise Exception("No audio was received. Please verify that your parameters are correct.")
             
     except ValueError as e:
@@ -206,6 +216,7 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
     except WSServerHandshakeError as e:
         # Check if it's a 403 error (rate limiting/IP blocking)
         error_str = str(e)
+        logger.error(f"WSServerHandshakeError: {e}")
         if '403' in error_str or 'Invalid response status' in error_str:
             raise Exception(f"Edge TTS 403 error: {e}")
         else:
@@ -214,6 +225,10 @@ async def _generate_tts_async(text, voice, output_path, timeout=30):
         logger.error(f"TTS generation timeout: {e}")
         raise Exception(f"TTS generation timed out after {timeout}s. Please try again.")
     except Exception as e:
+        # Log the full exception for debugging
+        import traceback
+        logger.error(f"TTS generation error: {type(e).__name__}: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         # Re-raise with better error message if needed
         error_str = str(e)
         if 'No audio was received' in error_str or 'empty' in error_str.lower():
@@ -245,8 +260,17 @@ def generate_tts_with_retry(text, voice, output_path, max_retries=5, fast_mode=F
         logger.error("No voice specified for TTS")
         return False
     
+    # Validate voice format
+    if len(voice) < 5 or '-' not in voice:
+        logger.error(f"Invalid voice format: {voice}")
+        return False
+    
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Log environment info for debugging
+    is_heroku = bool(os.environ.get('DYNO'))
+    logger.info(f"TTS generation started: voice={voice}, text_len={len(text)}, heroku={is_heroku}, fast_mode={fast_mode}")
     
     # Add initial delay to avoid immediate rate limiting (shorter in fast mode)
     if fast_mode:
