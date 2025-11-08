@@ -102,7 +102,7 @@ def edit_message_reply_markup(chat_id, message_id, reply_markup=None):
     try:
         response = requests.post(url, json=payload, timeout=10)
         return response.json()
-    except Exception as e:
+            except Exception as e:
         logger.error(f"Error editing message: {e}")
         return None
 
