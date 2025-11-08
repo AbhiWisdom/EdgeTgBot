@@ -1,8 +1,6 @@
 """
-Telegram TTS Bot Package
+Telegram TTS Bot Package - Pure Flask
 """
-from .config import API_TOKEN
-from .states import VoiceSelection
+from .config import API_TOKEN, WEBHOOK_URL
 
-__all__ = ['API_TOKEN', 'VoiceSelection']
-
+__all__ = ['API_TOKEN', 'WEBHOOK_URL']

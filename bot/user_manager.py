@@ -6,7 +6,6 @@ import logging
 import os
 from pathlib import Path
 from typing import List, Set
-from aiogram.types import FSInputFile
 
 from .config import OWNER_ID
 
@@ -47,7 +46,7 @@ def save_users(users: Set[int]) -> bool:
         return False
 
 
-async def register_user(user_id: int, bot) -> bool:
+def register_user(user_id: int) -> bool:
     """
     Register a new user and notify owner if new.
     Returns True if user is new, False if already exists.
@@ -61,31 +60,8 @@ async def register_user(user_id: int, bot) -> bool:
     users.add(user_id)
     save_users(users)
     
-    # Notify owner about new user
-    try:
-        message = (
-            f"🎉 **New User Alert!**\n\n"
-            f"👤 User ID: `{user_id}`\n"
-            f"📊 Total Users: **{len(users)}**\n\n"
-            f"📎 Updated user database attached below."
-        )
-        await bot.send_message(OWNER_ID, message, parse_mode='Markdown')
-        
-        # Send updated userid.json to owner
-        if USER_DB_PATH.exists():
-            user_file = FSInputFile(str(USER_DB_PATH))
-            await bot.send_document(
-                OWNER_ID,
-                user_file,
-                caption=f"📋 Updated user database ({len(users)} users)"
-            )
-        
-        logger.info(f"New user {user_id} registered. Total users: {len(users)}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error notifying owner about new user {user_id}: {e}")
-        return True  # User was still added
+    logger.info(f"New user {user_id} registered. Total users: {len(users)}")
+    return True
 
 
 def get_all_users() -> List[int]:

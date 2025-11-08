@@ -11,6 +11,9 @@ from pathlib import Path
 # Get API token from environment variable (Heroku) or use default
 API_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '7813366733:AAHjgmubIbQPXEoxCkipp1BLbD1th96-rWw')
 
+# Webhook URL - Set this to your Heroku app URL + /webhook
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://ttsbot-a572faff13b4.herokuapp.com/webhook')
+
 # ==============================
 # Paths
 # ==============================
