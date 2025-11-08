@@ -9,8 +9,9 @@ import requests
 import uuid
 import asyncio
 from pathlib import Path
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, render_template, send_from_directory
 from flask_session import Session
+from flask_cors import CORS
 import edge_tts
 
 from bot.config import API_TOKEN, OWNER_ID, ABHIBOTS_CHANNEL_ID, BASE_AUDIO_DIR, MAX_TEXT_LENGTH, WEBHOOK_URL
@@ -19,13 +20,25 @@ from bot.keyboards import create_country_keyboard, create_language_keyboard, cre
 from bot.user_manager import register_user, get_all_users, get_user_count, is_owner, load_users
 
 # Configure Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
+# Log startup info
+logger.info("=" * 50)
+logger.info("Telegram TTS Bot Starting...")
+logger.info(f"API Token configured: {bool(API_TOKEN)}")
+logger.info(f"Webhook URL: {WEBHOOK_URL}")
+logger.info(f"Owner ID: {OWNER_ID}")
+logger.info("=" * 50)
+
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-this')
 app.config['SESSION_TYPE'] = 'filesystem'
+CORS(app)  # Enable CORS for all routes
 Session(app)
 
 # Telegram Bot API base URL
@@ -160,31 +173,168 @@ def send_document(chat_id, document_path, caption=None):
 
 @app.route('/')
 def index():
-    """Health check endpoint."""
-    return jsonify({
-        "status": "ok",
-        "bot": "Telegram TTS Bot",
-        "version": "3.0",
-        "mode": "flask-only"
-    })
+    """Serve the main HTML page."""
+    try:
+        # Load voices and organize them by country and language for the web interface
+        voices = load_voice_list()
+        
+        # Organize voices into nested structure: {country: {language: [voices]}}
+        voices_dict = {}
+        for voice in voices:
+            locale = voice.get('Locale', '')
+            
+            # Extract country and language from Locale if CountryName/LanguageName not present
+            if 'CountryName' in voice and 'LanguageName' in voice:
+                country_name = voice.get('CountryName', 'Unknown')
+                language_name = voice.get('LanguageName', 'Unknown')
+            else:
+                # Fallback: parse from Locale (e.g., "en-US" -> "United States", "English")
+                parts = locale.split('-') if locale else []
+                if len(parts) == 2:
+                    language_code, country_code = parts
+                    try:
+                        import pycountry
+                        country = pycountry.countries.get(alpha_2=country_code.upper())
+                        language = pycountry.languages.get(alpha_2=language_code.lower())
+                        country_name = country.name if country else country_code.upper()
+                        language_name = language.name if language else language_code.upper()
+                    except:
+                        country_name = country_code.upper()
+                        language_name = language_code.upper()
+                else:
+                    country_name = 'Unknown'
+                    language_name = 'Unknown'
+            
+            if country_name not in voices_dict:
+                voices_dict[country_name] = {}
+            if language_name not in voices_dict[country_name]:
+                voices_dict[country_name][language_name] = []
+            
+            voices_dict[country_name][language_name].append(voice)
+        
+        return render_template('index.html', voices=voices_dict)
+    except Exception as e:
+        logger.error(f"Error loading index.html: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": "Could not load web interface",
+            "error": str(e)
+        }), 500
 
 
 @app.route('/health', methods=['GET'])
 def health():
     """Health check for Heroku."""
-    return jsonify({"status": "healthy"}), 200
+    return jsonify({
+        "status": "healthy",
+        "bot_token_set": bool(API_TOKEN),
+        "webhook_url": WEBHOOK_URL
+    }), 200
+
+
+@app.route('/tts', methods=['POST'])
+def tts():
+    """Handle TTS requests from web interface."""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "Invalid JSON payload"}), 400
+        
+        text = data.get('text', '').strip()
+        voice_shortname = data.get('voice', '')
+        
+        # Validation
+        if not text:
+            return jsonify({"error": "Text is required"}), 400
+        
+        if not voice_shortname:
+            return jsonify({"error": "Voice selection is required"}), 400
+        
+        if len(text) > MAX_TEXT_LENGTH:
+            return jsonify({"error": f"Text exceeds maximum length of {MAX_TEXT_LENGTH} characters"}), 400
+        
+        # Generate audio
+        user_audio_dir = BASE_AUDIO_DIR / 'web'
+        user_audio_dir.mkdir(parents=True, exist_ok=True)
+        
+        filename = f"{uuid.uuid4()}.mp3"
+        output_path = user_audio_dir / filename
+        
+        try:
+            # Generate audio using edge_tts
+            communicate = edge_tts.Communicate(text, voice_shortname)
+            asyncio.run(communicate.save(str(output_path)))
+            
+            if output_path.exists() and output_path.stat().st_size > 0:
+                # Generate URL for the audio file
+                audio_url = f"/static/audio/web/{filename}"
+                
+                # Cleanup old files
+                cleanup_audio_files('web')
+                
+                return jsonify({"audio_url": audio_url}), 200
+            else:
+                return jsonify({"error": "Generated audio file is empty"}), 500
+                
+        except Exception as e:
+            logger.error(f"TTS generation error: {e}", exc_info=True)
+            return jsonify({"error": "Failed to generate audio"}), 500
+            
+    except Exception as e:
+        logger.error(f"TTS endpoint error: {e}", exc_info=True)
+        return jsonify({"error": "An unexpected error occurred"}), 500
+
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """Serve static files."""
+    return send_from_directory('static', filename)
+
+
+@app.route('/test', methods=['GET', 'POST'])
+def test():
+    """Test endpoint to verify app is running."""
+    return jsonify({
+        "status": "ok",
+        "message": "Bot is running",
+        "api_token_configured": bool(API_TOKEN),
+        "webhook_url": WEBHOOK_URL,
+        "owner_id": OWNER_ID
+    }), 200
 
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates."""
     try:
+        # Log incoming update
         update = request.json
+        logger.info(f"Received update: {update.get('update_id')}")
         
+        if not update:
+            logger.warning("Empty update received")
+            return jsonify({"ok": False, "error": "Empty update"}), 400
+        
+        # Handle message
         if 'message' in update:
-            handle_message(update['message'])
+            try:
+                handle_message(update['message'])
+            except Exception as e:
+                logger.error(f"Error handling message: {e}", exc_info=True)
+                # Still return ok to Telegram to avoid retries
+                return jsonify({"ok": True, "error": str(e)})
+        
+        # Handle callback query
         elif 'callback_query' in update:
-            handle_callback_query(update['callback_query'])
+            try:
+                handle_callback_query(update['callback_query'])
+            except Exception as e:
+                logger.error(f"Error handling callback: {e}", exc_info=True)
+                return jsonify({"ok": True, "error": str(e)})
+        
+        else:
+            logger.debug(f"Unhandled update type: {update.keys()}")
         
         return jsonify({"ok": True})
     except Exception as e:
