@@ -1,0 +1,24 @@
+# Heroku deployment files
+*.pyc
+__pycache__/
+*.log
+*.db
+*.sqlite
+.env
+venv/
+env/
+.venv
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Keep these files
+!voice.json
+!userid.json
+!bot/
+!app.py
+!Procfile
+!requirements.txt
+!runtime.txt
+

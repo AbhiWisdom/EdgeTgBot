@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Ensure proper scaling on mobile devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Text-to-Speech Converter</title>
+    <!-- Google Fonts for Enhanced Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Modern Reset */
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Variables */
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #2c3e50;
+            --background-color: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            --card-background: #ffffff;
+            --text-color: #333333;
+            --transition-speed: 0.3s;
+            --button-padding: 0.8rem 1.2rem;
+            --button-font-size: 1rem;
+            --border-radius: 12px;
+            --shadow: rgba(0, 0, 0, 0.1);
+            --hover-shadow: rgba(0, 0, 0, 0.2);
+            --error-color: #e74c3c;
+            --success-color: #2ecc71;
+        }
+
+        /* Base Styles */
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            padding: 1rem;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.5s ease;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: var(--card-background);
+            border-radius: var(--border-radius);
+            box-shadow: 0 8px 16px var(--shadow);
+            transform: translateY(0);
+            opacity: 1;
+            animation: slideIn 0.6s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+
+        h1 {
+            color: var(--secondary-color);
+            margin-bottom: 1.5rem;
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--secondary-color);
+            font-weight: 500;
+            font-size: 1.1rem;
+            transition: color var(--transition-speed) ease;
+        }
+
+        select, textarea {
+            width: 100%;
+            padding: 0.9rem;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all var(--transition-speed) ease;
+            background-color: var(--card-background);
+            font-family: 'Roboto', sans-serif;
+        }
+
+        select:hover, textarea:hover {
+            border-color: var(--primary-color);
+        }
+
+        select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        button, .download-button {
+            width: 100%;
+            padding: var(--button-padding);
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: var(--button-font-size);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-speed) ease;
+            position: relative;
+            overflow: hidden;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        button:hover, .download-button:hover {
+            background-color: #357abd;
+            box-shadow: 0 6px 12px var(--hover-shadow);
+        }
+
+        button:active, .download-button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled, .download-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* Ripple Effect */
+        button::after, .download-button::after {
+            content: '';
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.3);
+            display: block;
+            border-radius: 50%;
+            transform: scale(0);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        button:focus::after, .download-button:focus::after {
+            animation: ripple 0.6s linear;
+        }
+
+        @keyframes ripple {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+
+        /* Audio Player Styling */
+        audio {
+            width: 100%;
+            margin-top: 1.5rem;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            box-shadow: 0 4px 8px var(--shadow);
+            transition: box-shadow var(--transition-speed) ease;
+        }
+
+        audio:hover {
+            box-shadow: 0 6px 12px var(--hover-shadow);
+        }
+
+        /* Loading Animation */
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 1.5rem 0;
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Animations */
+        @keyframes slideIn {
+            from {
+                transform: translateY(30px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1.5rem;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 0.5rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            label, select, textarea, button, .download-button {
+                font-size: 0.95rem;
+            }
+        }
+
+        /* Success and Error Messages */
+        .message {
+            padding: 0.8rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            display: none;
+            font-size: 0.95rem;
+        }
+
+        .message.success {
+            background-color: var(--success-color);
+            color: #fff;
+        }
+
+        .message.error {
+            background-color: var(--error-color);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" role="main">
+        <h1>Text-to-Speech Converter</h1>
+
+        <!-- Success and Error Messages -->
+        <div id="message" class="message" role="alert"></div>
+
+        <form id="ttsForm">
+            <div class="form-group" style="animation-delay: 0.1s;">
+                <label for="country">Select Country:</label>
+                <select id="country" aria-label="Select Country">
+                    <option value="" disabled selected>Select a country</option>
+                    {% for country in voices.keys() %}
+                        <option value="{{ country }}">{{ country }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" style="animation-delay: 0.2s;">
+                <label for="language">Select Language:</label>
+                <select id="language" disabled aria-label="Select Language">
+                    <option value="" disabled selected>Select a language</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="animation-delay: 0.3s;">
+                <label for="voice">Select Voice:</label>
+                <select id="voice" disabled aria-label="Select Voice">
+                    <option value="" disabled selected>Select a voice</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="animation-delay: 0.4s;">
+                <label for="text">Enter Text:</label>
+                <textarea id="text" placeholder="Enter text here..." aria-label="Enter Text"></textarea>
+            </div>
+
+            <div class="form-group" style="animation-delay: 0.5s;">
+                <button id="speakButton" type="submit" disabled aria-label="Speak">Speak</button>
+            </div>
+        </form>
+
+        <!-- Download Button -->
+        <div class="form-group" style="animation-delay: 0.6s;">
+            <a href="#" id="downloadButton" class="download-button" download="speech.mp3" style="display: none;" aria-label="Download Audio">Download Audio</a>
+        </div>
+
+        <div class="loading" aria-label="Loading"></div>
+        <audio id="audioPlayer" controls aria-label="Audio Player"></audio>
+    </div>
+
+    <!-- Telegram Web Apps SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Telegram Web App
+            const tg = window.Telegram.WebApp;
+
+            // Optional: Adjust the theme based on Telegram settings
+            tg.ready();
+            tg.expand(); // Expand the app to full height if needed
+
+            // Get voices data passed from Flask
+            const voicesData = {{ voices | tojson | safe }};
+
+            const countrySelect = document.getElementById('country');
+            const languageSelect = document.getElementById('language');
+            const voiceSelect = document.getElementById('voice');
+            const speakButton = document.getElementById('speakButton');
+            const downloadButton = document.getElementById('downloadButton');
+            const audioPlayer = document.getElementById('audioPlayer');
+            const textInput = document.getElementById('text');
+            const loading = document.querySelector('.loading');
+            const messageBox = document.getElementById('message');
+
+            // Helper function to display messages
+            function showMessage(message, type = 'success') {
+                messageBox.textContent = message;
+                messageBox.className = `message ${type}`;
+                messageBox.style.display = 'block';
+                setTimeout(() => {
+                    messageBox.style.display = 'none';
+                }, 4000);
+            }
+
+            // Event Listener for Country Selection
+            countrySelect.addEventListener('change', () => {
+                const selectedCountry = countrySelect.value;
+                languageSelect.innerHTML = '<option value="" disabled selected>Select a language</option>';
+                languageSelect.disabled = true;
+                voiceSelect.innerHTML = '<option value="" disabled selected>Select a voice</option>';
+                voiceSelect.disabled = true;
+                speakButton.disabled = true;
+                downloadButton.style.display = 'none';
+                downloadButton.href = '#';
+                audioPlayer.src = '';
+                audioPlayer.pause();
+
+                if (selectedCountry && voicesData[selectedCountry]) {
+                    const languages = Object.keys(voicesData[selectedCountry]);
+                    languages.forEach(language => {
+                        const option = document.createElement('option');
+                        option.value = language;
+                        option.textContent = language;
+                        languageSelect.appendChild(option);
+                    });
+                    languageSelect.disabled = false;
+                }
+            });
+
+            // Event Listener for Language Selection
+            languageSelect.addEventListener('change', () => {
+                const selectedCountry = countrySelect.value;
+                const selectedLanguage = languageSelect.value;
+                voiceSelect.innerHTML = '<option value="" disabled selected>Select a voice</option>';
+                voiceSelect.disabled = true;
+                speakButton.disabled = true;
+                downloadButton.style.display = 'none';
+                downloadButton.href = '#';
+                audioPlayer.src = '';
+                audioPlayer.pause();
+
+                if (selectedLanguage && voicesData[selectedCountry][selectedLanguage]) {
+                    const voices = voicesData[selectedCountry][selectedLanguage];
+                    voices.forEach(voice => {
+                        const option = document.createElement('option');
+                        option.value = voice.ShortName;
+                        option.textContent = `${voice.Name} (${voice.Gender})`;
+                        voiceSelect.appendChild(option);
+                    });
+                    voiceSelect.disabled = false;
+                }
+            });
+
+            // Event Listener for Voice Selection
+            voiceSelect.addEventListener('change', () => {
+                const selectedVoice = voiceSelect.value;
+                const text = textInput.value.trim();
+                speakButton.disabled = !(selectedVoice && text.length > 0);
+                downloadButton.style.display = 'none';
+                downloadButton.href = '#';
+                audioPlayer.src = '';
+                audioPlayer.pause();
+            });
+
+            // Event Listener for Text Input
+            textInput.addEventListener('input', () => {
+                const selectedVoice = voiceSelect.value;
+                const text = textInput.value.trim();
+                speakButton.disabled = !(selectedVoice && text.length > 0);
+            });
+
+            // Event Listener for Submit (POST method)
+            document.getElementById('ttsForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+
+                const voice = voiceSelect.value;
+                const text = textInput.value;
+
+                const payload = { text, voice };
+
+                try {
+                    loading.style.display = 'block';
+                    speakButton.disabled = true;
+                    messageBox.style.display = 'none';
+                    audioPlayer.src = '';
+                    audioPlayer.pause();
+                    downloadButton.style.display = 'none';
+                    downloadButton.href = '#';
+
+                    const response = await fetch('/tts', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        audioPlayer.src = data.audio_url;
+                        audioPlayer.play();
+
+                        // Set up Download Button
+                        downloadButton.href = data.audio_url;
+                        const filename = `speech_${voice}_${Date.now()}.mp3`;
+                        downloadButton.setAttribute('download', filename);
+                        downloadButton.style.display = 'block';
+                        showMessage('Audio generated successfully!', 'success');
+                    } else {
+                        showMessage(data.error || 'An error occurred.', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showMessage('An error occurred while generating audio.', 'error');
+                } finally {
+                    loading.style.display = 'none';
+                    speakButton.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
