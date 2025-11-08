@@ -917,32 +917,49 @@ def set_webhook_auto():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route('/webhookinfo', methods=['GET'])
+@app.route('/webhookinfo', methods=['GET', 'POST'])
 def webhook_info():
     """Get webhook info."""
     url = f"{TELEGRAM_API_URL}/getWebhookInfo"
     
     try:
         response = requests.get(url, timeout=10)
-        return jsonify(response.json())
+        result = response.json()
+        
+        # Return formatted info
+        if result.get('ok'):
+            webhook_info = result.get('result', {})
+            return jsonify({
+                "ok": True,
+                "webhook_url": webhook_info.get('url', 'Not set'),
+                "has_custom_certificate": webhook_info.get('has_custom_certificate', False),
+                "pending_update_count": webhook_info.get('pending_update_count', 0),
+                "last_error_date": webhook_info.get('last_error_date'),
+                "last_error_message": webhook_info.get('last_error_message'),
+                "max_connections": webhook_info.get('max_connections'),
+                "allowed_updates": webhook_info.get('allowed_updates')
+            })
+        else:
+            return jsonify(result), 400
     except Exception as e:
+        logger.error(f"Error getting webhook info: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     
-    # Auto-set webhook on startup (optional)
-    # Uncomment the following lines to auto-set webhook when app starts:
-    # try:
-    #     url = f"{TELEGRAM_API_URL}/setWebhook"
-    #     payload = {'url': WEBHOOK_URL}
-    #     response = requests.post(url, json=payload, timeout=10)
-    #     if response.json().get('ok'):
-    #         logger.info(f"✅ Webhook automatically set to: {WEBHOOK_URL}")
-    #     else:
-    #         logger.warning(f"⚠️ Failed to set webhook: {response.json().get('description')}")
-    # except Exception as e:
-    #     logger.error(f"Error setting webhook on startup: {e}")
+    # Auto-set webhook on startup
+    try:
+        url = f"{TELEGRAM_API_URL}/setWebhook"
+        payload = {'url': WEBHOOK_URL}
+        response = requests.post(url, json=payload, timeout=10)
+        result = response.json()
+        if result.get('ok'):
+            logger.info(f"✅ Webhook automatically set to: {WEBHOOK_URL}")
+        else:
+            logger.warning(f"⚠️ Failed to set webhook: {result.get('description')}")
+    except Exception as e:
+        logger.error(f"Error setting webhook on startup: {e}")
     
     app.run(host='0.0.0.0', port=port, debug=False)
