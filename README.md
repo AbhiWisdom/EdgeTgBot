@@ -1,127 +1,55 @@
-# 🤖 Telegram TTS Bot - Heroku Ready
+# ⚡ EdgeTgBot
 
-A fast, modular Telegram bot for text-to-speech conversion using Microsoft Edge TTS.
+> Telegram bot powered by cutting-edge AI models for intelligent conversations
+
+[![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python)](https://python.org)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-26A5E4?logo=telegram)](https://t.me/EdgeTgBot)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## ✨ Features
 
-- 🎤 **Text-to-Speech** - Convert text to speech with 400+ voices
-- 📢 **Broadcast System** - Send messages to all users (owner only)
-- 👥 **User Tracking** - Automatic user registration and database
-- 🌍 **Multi-language** - Support for 100+ languages
-- ⚡ **Fast & Async** - Built with aiogram 3.x for maximum performance
-- 🏗️ **Modular** - Clean architecture for easy feature addition
-- ☁️ **Heroku Ready** - Deploy to Heroku with one command
+- 🧠 **Multiple AI Models** — Access various cutting-edge AI models
+- 💬 **Natural Conversations** — Context-aware chat with memory
+- 🖼️ **Image Understanding** — Send images for AI analysis
+- ⚡ **Fast Responses** — Optimized for quick reply times
+- 🔒 **Privacy Focused** — No data stored permanently
+- 🆓 **Free to Use** — Open source and self-hostable
 
-## 🚀 Quick Deploy to Heroku
+## 🚀 Quick Start
 
+1. Clone and install
 ```bash
-# 1. Clone and setup
-git clone <your-repo>
-cd EdgeTTS-main
-
-# 2. Login to Heroku
-heroku login
-
-# 3. Create app
-heroku create your-bot-name
-
-# 4. Set environment variables
-heroku config:set TELEGRAM_BOT_TOKEN="your_bot_token"
-heroku config:set WEBHOOK_URL="https://your-bot-name.herokuapp.com/webhook"
-heroku config:set OWNER_ID="your_telegram_user_id"
-
-# 5. Deploy
-git push heroku main
-
-# 6. Set webhook
-heroku run python setup_webhook.py
-```
-
-**See `HEROKU_DEPLOYMENT.md` for detailed instructions!**
-
-## 📁 Project Structure
-
-```
-bot/
-├── config.py              # Configuration (env vars)
-├── handlers/              # Feature handlers
-│   ├── start_handler.py
-│   ├── broadcast_handler.py
-│   └── ...
-├── keyboards.py           # UI keyboards
-├── states.py              # FSM states
-├── utils.py               # Helper functions
-└── user_manager.py        # User tracking
-
-app.py                     # Flask webhook app
-main.py                    # Local polling (dev)
-Procfile                   # Heroku process
-requirements.txt           # Dependencies
-```
-
-## 🎮 Commands
-
-### User Commands
-- `/start` - Start bot and select voice
-
-### Owner Commands
-- `/broadcast` - Send message to all users
-- `/stats` - View bot statistics
-- `/getuserlist` - Download user database
-- `/stopbroadcast` - Stop running broadcast
-
-## 🔧 Local Development
-
-```bash
-# Install dependencies
+git clone https://github.com/AbhiWisdom/EdgeTgBot.git
+cd EdgeTgBot
 pip install -r requirements.txt
-
-# Run locally (polling mode)
-python main.py
-
-# Or run Flask app
-python app.py
 ```
 
-## 📚 Documentation
+2. Configure
+```bash
+cp .env.example .env
+# Add your Telegram Bot Token and AI API keys
+```
 
-- **`HEROKU_DEPLOYMENT.md`** - Complete Heroku deployment guide
-- **`BOT_STRUCTURE.md`** - Architecture and development guide
-- **`BROADCAST_GUIDE.md`** - Broadcast feature documentation
-- **`QUICK_START.md`** - Quick reference guide
+3. Run
+```bash
+python main.py
+```
 
 ## 🛠️ Tech Stack
 
-- **Python 3.12** - Programming language
-- **Flask** - Web framework (Heroku)
-- **Aiogram 3.x** - Telegram bot framework
-- **Edge TTS** - Text-to-speech engine
-- **Gunicorn** - WSGI server (Heroku)
+- **Language:** Python 3.9+
+- **Bot Framework:** python-telegram-bot / Telethon
+- **AI Models:** Edge AI, GPT, Claude integrations
+- **Database:** SQLite for user sessions
 
-## 📝 Environment Variables
+## 🤝 Contributing
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Bot token from BotFather |
-| `WEBHOOK_URL` | ✅ | Heroku app webhook URL |
-| `OWNER_ID` | ✅ | Your Telegram user ID |
-| `ABHIBOTS_CHANNEL_ID` | ⚠️ | Channel ID (optional) |
-
-## 🐛 Troubleshooting
-
-See `HEROKU_DEPLOYMENT.md` for troubleshooting guide.
+PRs and issues welcome!
 
 ## 📄 License
 
-MIT License
-
-## 🙏 Credits
-
-- Microsoft Edge TTS
-- Aiogram Framework
-- Heroku Platform
+MIT License — see [LICENSE](LICENSE)
 
 ---
 
-**Made with ❤️ for the Telegram community**
-
+Made with ❤️ by [Abhiraj](https://github.com/AbhiWisdom)
